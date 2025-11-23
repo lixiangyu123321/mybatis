@@ -21,6 +21,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
+ * **** 构造器注入的映射规则 ****
  * @author Clinton Begin
  */
 @Retention(RetentionPolicy.RUNTIME)

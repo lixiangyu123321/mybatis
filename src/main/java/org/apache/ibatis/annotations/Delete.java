@@ -21,6 +21,10 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
+ * 定义删除操作 SQL 语句的核心注解
+ * 存储删除操作的 SQL 语句，支持数组形式的原因有二：
+ * 1. SQL 语句换行拆分：将长 SQL 按行拆分为多个字符串元素，提升代码可读性（MyBatis 会自动拼接数组元素为完整 SQL）；
+ * 2. 动态 SQL 兼容：直接在数组中编写 MyBatis 动态 SQL 标签（如<foreach>、<if>），框架会按动态 SQL 规则解析执行。
  * @author Clinton Begin
  */
 @Retention(RetentionPolicy.RUNTIME)

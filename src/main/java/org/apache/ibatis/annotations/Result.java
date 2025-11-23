@@ -25,6 +25,7 @@ import org.apache.ibatis.type.TypeHandler;
 import org.apache.ibatis.type.UnknownTypeHandler;
 
 /**
+ * 数据库列与 Java 实体类属性映射的核心注解
  * @author Clinton Begin
  */
 @Retention(RetentionPolicy.RUNTIME)

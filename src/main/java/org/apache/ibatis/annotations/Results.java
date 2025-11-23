@@ -21,10 +21,22 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
+ * 定义结果映射规则集合
  * @author Clinton Begin
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
 public @interface Results {
+
+  /**
+   * 存在多个映射规则
+   * @return
+   */
   Result[] value() default {};
+
+  /**
+   * 在Mybaits3.3+版本，扩展了id属性，用于ResultMap的复用
+   * @return
+   */
+  String id() default "";
 }

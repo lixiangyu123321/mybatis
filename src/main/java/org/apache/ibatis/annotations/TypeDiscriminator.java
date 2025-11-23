@@ -25,18 +25,41 @@ import org.apache.ibatis.type.TypeHandler;
 import org.apache.ibatis.type.UnknownTypeHandler;
 
 /**
+ * ****鉴别器映射器 ****
+ * 替代了 XML 映射文件中的<discriminator>标签。其核心作用是根据数据库中某一列（鉴别列）的不同值，动态选择不同的结果映射规则
  * @author Clinton Begin
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
 public @interface TypeDiscriminator {
+  /**
+   * 指定鉴别列
+   * MyBatis 会根据该列的值选择对应的@Case分支规则。
+   * @return
+   */
   String column();
 
+  /**
+   * 指定鉴别列值的Java 类型
+   * @return
+   */
   Class<?> javaType() default void.class;
 
+  /**
+   * 指定鉴别列的JDBC类型
+   * @return
+   */
   JdbcType jdbcType() default JdbcType.UNDEFINED;
 
+  /**
+   * 指定鉴别列的自定义类型处理器，用于转换鉴别列的数据库值与 Java 匹配值。
+   * @return
+   */
   Class<? extends TypeHandler<?>> typeHandler() default UnknownTypeHandler.class;
 
+  /**
+   * 分支规则，即根据鉴别列的值选择的结果映射规则
+   * @return
+   */
   Case[] cases();
 }

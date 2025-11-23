@@ -21,6 +21,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
+ * 与DeleteProvider同
  * @author Clinton Begin
  */
 @Retention(RetentionPolicy.RUNTIME)
