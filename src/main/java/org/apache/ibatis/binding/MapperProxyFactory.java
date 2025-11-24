@@ -23,10 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.ibatis.session.SqlSession;
 
 /**
+ * 负责实例化MapperProxy，即基于JDK动态代理创建Mapper接口代理对象
  * @author Lasse Voss
- */
-/**
- * 映射器代理工厂
  */
 public class MapperProxyFactory<T> {
 
@@ -45,12 +43,23 @@ public class MapperProxyFactory<T> {
     return methodCache;
   }
 
+  /**
+   * 这里protected的原因是支持其他方式的代理对象生成
+   * @param mapperProxy
+   * @return
+   */
   @SuppressWarnings("unchecked")
   protected T newInstance(MapperProxy<T> mapperProxy) {
-    //用JDK自带的动态代理生成映射器
+    // 生成代理对象，即Mapper接口的代理对象
     return (T) Proxy.newProxyInstance(mapperInterface.getClassLoader(), new Class[] { mapperInterface }, mapperProxy);
   }
 
+  /**
+   * **** 这应该是后续代理的直接入口 ****
+   * 示例化相应的MapperProxy
+   * @param sqlSession
+   * @return
+   */
   public T newInstance(SqlSession sqlSession) {
     final MapperProxy<T> mapperProxy = new MapperProxy<T>(sqlSession, mapperInterface, methodCache);
     return newInstance(mapperProxy);

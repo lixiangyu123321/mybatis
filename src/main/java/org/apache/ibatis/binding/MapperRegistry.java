@@ -27,61 +27,77 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * @author Clinton Begin
- * @author Eduardo Macarron
- * @author Lasse Voss
- */
-/**
- * 映射器注册机
- *
+ * 负责所有Mapper接口的注册，存储和代理对象的获取
+ * 集中管理了Mapper接口的扫描，注册，缓存和代理对象创建的分支逻辑
+ * 是MyBatis实现“接口式编程”的关键
  */
 public class MapperRegistry {
 
+  /**
+   * MyBatis的全局配置对象，包含MyBatis的所有核心配置
+   */
   private Configuration config;
-  //将已经添加的映射都放入HashMap
+
+  /**
+   * 缓存Mapper接口与对应的MapperProxyFactory
+   */
   private final Map<Class<?>, MapperProxyFactory<?>> knownMappers = new HashMap<Class<?>, MapperProxyFactory<?>>();
 
   public MapperRegistry(Configuration config) {
     this.config = config;
   }
 
+  /**
+   * 代理对象获取
+   * @param type
+   * @param sqlSession
+   * @return
+   * @param <T>
+   */
   @SuppressWarnings("unchecked")
-  //返回代理类
   public <T> T getMapper(Class<T> type, SqlSession sqlSession) {
+    // 从缓存中获取对应的MapperProxyFactory
     final MapperProxyFactory<T> mapperProxyFactory = (MapperProxyFactory<T>) knownMappers.get(type);
+    // 未注册抛出异常
     if (mapperProxyFactory == null) {
       throw new BindingException("Type " + type + " is not known to the MapperRegistry.");
     }
     try {
+      // 委托工厂创建代理对象
       return mapperProxyFactory.newInstance(sqlSession);
     } catch (Exception e) {
       throw new BindingException("Error getting mapper instance. Cause: " + e, e);
     }
   }
-  
+
+  /**
+   * 检查对应Mapper接口是否是否已经注册
+   * @param type
+   * @return
+   * @param <T>
+   */
   public <T> boolean hasMapper(Class<T> type) {
     return knownMappers.containsKey(type);
   }
 
-  //看一下如何添加一个映射
+  /**
+   * 注册单个Mapper接口
+   * 除了放入Map中，还去解析Mapper接口的注解
+   * @param type
+   * @param <T>
+   */
   public <T> void addMapper(Class<T> type) {
-    //mapper必须是接口！才会添加
     if (type.isInterface()) {
       if (hasMapper(type)) {
-        //如果重复添加了，报错
         throw new BindingException("Type " + type + " is already known to the MapperRegistry.");
       }
       boolean loadCompleted = false;
       try {
         knownMappers.put(type, new MapperProxyFactory<T>(type));
-        // It's important that the type is added before the parser is run
-        // otherwise the binding may automatically be attempted by the
-        // mapper parser. If the type is already known, it won't try.
         MapperAnnotationBuilder parser = new MapperAnnotationBuilder(config, type);
         parser.parse();
         loadCompleted = true;
       } finally {
-        //如果加载过程中出现异常需要再将这个mapper从mybatis中删除,这种方式比较丑陋吧，难道是不得已而为之？
         if (!loadCompleted) {
           knownMappers.remove(type);
         }
@@ -91,6 +107,7 @@ public class MapperRegistry {
 
   /**
    * @since 3.2.2
+   * 通过特定方法返回不可修改的集合，避免外部代码修改相应键值，保证注册表的安全
    */
   public Collection<Class<?>> getMappers() {
     return Collections.unmodifiableCollection(knownMappers.keySet());
@@ -98,21 +115,22 @@ public class MapperRegistry {
 
   /**
    * @since 3.2.2
+   * 处理指定包下的所有类，仅处理Mapper接口，或者说仅仅处理接口
    */
   public void addMappers(String packageName, Class<?> superType) {
-    //查找包下所有是superType的类
     ResolverUtil<Class<?>> resolverUtil = new ResolverUtil<Class<?>>();
     resolverUtil.find(new ResolverUtil.IsA(superType), packageName);
     Set<Class<? extends Class<?>>> mapperSet = resolverUtil.getClasses();
     for (Class<?> mapperClass : mapperSet) {
+      // 方法内对接口进行选择处理，非接口不处理
       addMapper(mapperClass);
     }
   }
 
   /**
    * @since 3.2.2
+   * 批量注册
    */
-  //查找包下所有类
   public void addMappers(String packageName) {
     addMappers(packageName, Object.class);
   }

@@ -21,9 +21,7 @@ import org.apache.ibatis.exceptions.PersistenceException;
  * @author Clinton Begin
  */
 /**
- * 绑定例外，当Map中查不到对应的key时，抛此异常
- * 当重复添加映射时，也抛此异常
- * 当绑定Mapper中某个方法出错，也抛此异常
+ * 是 MyBatis 框架中核心的运行时异常类，专门用于表示数据绑定过程中出现的错误
  */
 public class BindingException extends PersistenceException {
 
