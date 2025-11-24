@@ -21,11 +21,19 @@ import org.apache.ibatis.cache.Cache;
  * @author Clinton Begin
  */
 /**
- * 缓存引用解析器
+ * 是 MyBatis 中处理 Mapper 接口间缓存引用（<cache-ref>）的解析器类
  *
  */
 public class CacheRefResolver {
+  /**
+   * 是 MyBatis 解析 Mapper 配置时的核心辅助类，封装了缓存创建、缓存引用绑定、SQL 语句构建等通用逻辑。
+   * CacheRefResolver不直接处理缓存引用的底层逻辑，而是委托该助手类的useCacheRef方法完成实际解析。
+   */
   private final MapperBuilderAssistant assistant;
+  /**
+   * 缓存引用的目标命名空间
+   * 确定共享的目标的缓存命名空间
+   */
   private final String cacheRefNamespace;
 
   public CacheRefResolver(MapperBuilderAssistant assistant, String cacheRefNamespace) {
@@ -33,8 +41,11 @@ public class CacheRefResolver {
     this.cacheRefNamespace = cacheRefNamespace;
   }
 
+  /**
+   * 出发缓存引用的解析流程，返回目标Mapper对应的二级缓存
+   * @return
+   */
   public Cache resolveCacheRef() {
-      //反调MapperBuilderAssistant解析
     return assistant.useCacheRef(cacheRefNamespace);
   }
 }

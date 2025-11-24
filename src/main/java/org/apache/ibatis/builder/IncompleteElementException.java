@@ -19,7 +19,7 @@ package org.apache.ibatis.builder;
  * @author Eduardo Macarron
  */
 /**
- * 元素不全异常,比如XMLIncludeTransformer里使用
+ * 不完全的元素异常，继承构建异常
  *
  */
 public class IncompleteElementException extends BuilderException {
