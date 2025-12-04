@@ -59,7 +59,7 @@ public class ProviderSqlSource implements SqlSource {
     }
   }
 
-  @Override
+  //@Override
   public BoundSql getBoundSql(Object parameterObject) {
     SqlSource sqlSource = createSqlSource(parameterObject);
     return sqlSource.getBoundSql(parameterObject);

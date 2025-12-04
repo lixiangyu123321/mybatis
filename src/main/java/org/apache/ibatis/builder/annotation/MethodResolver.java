@@ -18,10 +18,16 @@ package org.apache.ibatis.builder.annotation;
 import java.lang.reflect.Method;
 
 /**
- * @author Eduardo Macarron
+ * 延迟解析不完整的注解方法
  */
 public class MethodResolver {
+  /**
+   * Mapper注解构建器
+   */
   private final MapperAnnotationBuilder annotationBuilder;
+    /**
+     * 需要解析的Method方法
+     */
   private Method method;
 
   public MethodResolver(MapperAnnotationBuilder annotationBuilder, Method method) {
@@ -29,6 +35,9 @@ public class MethodResolver {
     this.method = method;
   }
 
+  /**
+   * 解析的入口
+   */
   public void resolve() {
     annotationBuilder.parseStatement(method);
   }
