@@ -51,16 +51,27 @@ import org.apache.ibatis.type.TypeHandler;
  * @author Clinton Begin
  */
 /**
- * XML映射构建器，建造者模式,继承BaseBuilder
- *
+ *XMLMapperBuilder 是 MyBatis 解析 Mapper XML 文件的核心类，
+ * 它负责将 Mapper XML 中的所有节点（如 <select>/<resultMap>/<sql> 等）解析并注册到 MyBatis 全局配置 Configuration 中，
+ * 是 MyBatis 加载 SQL 映射的核心入口。
  */
 public class XMLMapperBuilder extends BaseBuilder {
 
+  /**
+   * XPath解析器：用于解析XML节点
+   */
   private XPathParser parser;
-  //映射器构建助手
+  /**
+   * Mapper构建助手，封装命名空间，缓存，ResultMap等构建逻辑，简化XMLMapperBuilder的代码
+   */
   private MapperBuilderAssistant builderAssistant;
-  //用来存放sql片段的哈希表
+  /**
+   * SQL片段缓存
+   */
   private Map<String, XNode> sqlFragments;
+  /**
+   * 当前解析的Mapper资源路径，用于标记是否已加载，防止重复解析
+   */
   private String resource;
 
   @Deprecated
@@ -85,6 +96,13 @@ public class XMLMapperBuilder extends BaseBuilder {
         configuration, resource, sqlFragments);
   }
 
+  /**
+   * 所有的构造方法都以来于此方法
+   * @param parser
+   * @param configuration
+   * @param resource
+   * @param sqlFragments
+   */
   private XMLMapperBuilder(XPathParser parser, Configuration configuration, String resource, Map<String, XNode> sqlFragments) {
     super(configuration);
     this.builderAssistant = new MapperBuilderAssistant(configuration, resource);
@@ -93,84 +111,128 @@ public class XMLMapperBuilder extends BaseBuilder {
     this.resource = resource;
   }
 
-  //解析
+  /**
+   * 核心入口方法
+   */
   public void parse() {
-    //如果没有加载过再加载，防止重复加载
     if (!configuration.isResourceLoaded(resource)) {
-      //配置mapper
+      // 解析<mapper>下的所有子节点（select/resultMap/sql等）
       configurationElement(parser.evalNode("/mapper"));
-      //标记一下，已经加载过了
+      // 标记该资源已被加载，避免重复解析
       configuration.addLoadedResource(resource);
-      //绑定映射器到namespace
+      // 绑定Mapper接口与命名空间（如namespace对应UserMapper接口）
       bindMapperForNamespace();
     }
-
-    //还有没解析完的东东这里接着解析？  
+    /**
+     * 补全未完成的解析项
+     * 补全未解析的ResultMap
+     * 补全未解析的缓存引用
+     * 补全未解析的SQL语句
+     */
     parsePendingResultMaps();
     parsePendingChacheRefs();
     parsePendingStatements();
   }
 
+  /**
+   * 获得SQL片段
+   * @param refid
+   * @return
+   */
   public XNode getSqlFragment(String refid) {
     return sqlFragments.get(refid);
   }
 
-	//配置mapper元素
-//	<mapper namespace="org.mybatis.example.BlogMapper">
-//	  <select id="selectBlog" parameterType="int" resultType="Blog">
-//	    select * from Blog where id = #{id}
-//	  </select>
-//	</mapper>
+  /**
+   * 按固定顺序解析所有子节点
+   * @param context
+   */
   private void configurationElement(XNode context) {
     try {
-      //1.配置namespace
+      // 解析命名空间
       String namespace = context.getStringAttribute("namespace");
       if (namespace.equals("")) {
         throw new BuilderException("Mapper's namespace cannot be empty");
       }
       builderAssistant.setCurrentNamespace(namespace);
-      //2.配置cache-ref
+      // 解析<cache-ref>（引用其他Mapper的缓存配置）
       cacheRefElement(context.evalNode("cache-ref"));
-      //3.配置cache
+      // 解析<cache>（当前Mapper的缓存配置）
       cacheElement(context.evalNode("cache"));
-      //4.配置parameterMap(已经废弃,老式风格的参数映射)
+      // 解析<parameterMap>（已废弃，老式参数映射，兼容用）
       parameterMapElement(context.evalNodes("/mapper/parameterMap"));
-      //5.配置resultMap(高级功能)
+      // 解析<resultMap>（结果集映射，MyBatis核心高级功能）
       resultMapElements(context.evalNodes("/mapper/resultMap"));
-      //6.配置sql(定义可重用的 SQL 代码段)
+      // 解析<sql>（SQL片段，供<include>复用）
       sqlElement(context.evalNodes("/mapper/sql"));
-      //7.配置select|insert|update|delete TODO
+      // 解析<select|insert|update|delete>（核心SQL语句）
       buildStatementFromContext(context.evalNodes("select|insert|update|delete"));
     } catch (Exception e) {
       throw new BuilderException("Error parsing Mapper XML. Cause: " + e, e);
     }
   }
 
-  //7.配置select|insert|update|delete
+  /**
+   * 按数据库方言优先级（databaseId）优先级解析SQL语句
+   * <mapper namespace="com.mybatis.mapper.UserMapper">
+   *   <!-- MySQL专用SQL（databaseId="mysql"） -->
+   *   <select id="getUserById" resultType="User" databaseId="mysql">
+   *     SELECT id, username, create_time FROM user WHERE id = #{id}
+   *   </select>
+   *
+   *   <!-- Oracle专用SQL（databaseId="oracle"） -->
+   *   <select id="getUserById" resultType="User" databaseId="oracle">
+   *     SELECT id, username, create_time FROM user WHERE id = #{id}
+   *     AND ROWNUM = 1
+   *   </select>
+   *
+   *   <!-- 默认SQL（无databaseId） -->
+   *   <select id="getUserById" resultType="User">
+   *     SELECT id, username, create_time FROM user WHERE id = #{id}
+   *   </select>
+   * </mapper>
+   * @param list
+   */
   private void buildStatementFromContext(List<XNode> list) {
-    //调用7.1构建语句
     if (configuration.getDatabaseId() != null) {
+      /**
+       * configuration.getDatabaseId() != null：判断是否已识别出当前数据库的方言（如连接 MySQL 后，databaseId 为 mysql）；
+       * 调用重载方法 buildStatementFromContext(list, requiredDatabaseId)，传入当前数据库的 databaseId（如 mysql）；
+       * 核心逻辑：只解析 SQL 节点中 databaseId 属性等于 requiredDatabaseId 的语句（如 <select databaseId="mysql" ...>）；
+       * 设计意图：优先加载适配当前数据库的 SQL 语句，保证兼容性和性能
+       */
       buildStatementFromContext(list, configuration.getDatabaseId());
     }
+    /**
+     * 调用重载方法 buildStatementFromContext(list, null)，传入 null 表示匹配「无 databaseId 属性」的 SQL 语句；
+     * 核心逻辑：只解析 SQL 节点中未配置 databaseId 的语句（如 <select ...> 无 databaseId 属性）；
+     * 设计意图：作为兜底，当没有适配当前数据库的 SQL 时，使用默认 SQL 语句。
+     */
     buildStatementFromContext(list, null);
   }
 
-  //7.1构建语句
+  /**
+   * 基于SQL的id解析匹配对应的数据库方言
+   * @param list
+   * @param requiredDatabaseId
+   */
   private void buildStatementFromContext(List<XNode> list, String requiredDatabaseId) {
     for (XNode context : list) {
-      //构建所有语句,一个mapper下可以有很多select
-      //语句比较复杂，核心都在这里面，所以调用XMLStatementBuilder
+      // 创建SQL语句解析器（核心逻辑封装再XMLStatementBuilder）
       final XMLStatementBuilder statementParser = new XMLStatementBuilder(configuration, builderAssistant, context, requiredDatabaseId);
       try {
-          //核心XMLStatementBuilder.parseStatementNode
+        // 解析SQL节点（id/parameterType/resultType等）
         statementParser.parseStatementNode();
       } catch (IncompleteElementException e) {
-          //如果出现SQL语句不完整，把它记下来，塞到configuration去
+        // 出现异常，将对应XML解析器放入configuration，用于后续重试
         configuration.addIncompleteStatement(statementParser);
       }
     }
   }
 
+  /**
+   * 补全未完成 ResultMap 解析的核心方法
+   */
   private void parsePendingResultMaps() {
     Collection<ResultMapResolver> incompleteResultMaps = configuration.getIncompleteResultMaps();
     synchronized (incompleteResultMaps) {
@@ -180,12 +242,14 @@ public class XMLMapperBuilder extends BaseBuilder {
           iter.next().resolve();
           iter.remove();
         } catch (IncompleteElementException e) {
-          // ResultMap is still missing a resource...
         }
       }
     }
   }
 
+  /**
+   * 补全未完成 chacheRef解析
+   */
   private void parsePendingChacheRefs() {
     Collection<CacheRefResolver> incompleteCacheRefs = configuration.getIncompleteCacheRefs();
     synchronized (incompleteCacheRefs) {
@@ -201,6 +265,9 @@ public class XMLMapperBuilder extends BaseBuilder {
     }
   }
 
+  /**
+   * 补全未完成 SQL 语句解析的核心方法
+   */
   private void parsePendingStatements() {
     Collection<XMLStatementBuilder> incompleteStatements = configuration.getIncompleteStatements();
     synchronized (incompleteStatements) {
@@ -216,14 +283,35 @@ public class XMLMapperBuilder extends BaseBuilder {
     }
   }
 
-  //2.配置cache-ref,在这样的 情况下你可以使用 cache-ref 元素来引用另外一个缓存。 
-//<cache-ref namespace="com.someone.application.data.SomeMapper"/>
+  /**
+   * 解析 <cache-ref> 标签的核心方法，
+   * 它实现了 MyBatis 中「Mapper 缓存引用」的功能（即一个 Mapper 复用另一个 Mapper 的缓存配置），
+   * 同时处理引用缓存未加载的依赖问题。
+   *
+   * <!-- UserMapper.xml -->
+   * <mapper namespace="com.mybatis.mapper.UserMapper">
+   *   <cache-ref namespace="com.mybatis.mapper.RoleMapper"/>
+   *   <!-- 其他节点：select/resultMap等 -->
+   * </mapper>
+   *
+   * <!-- RoleMapper.xml -->
+   * <mapper namespace="com.mybatis.mapper.RoleMapper">
+   *   <cache eviction="LRU" flushInterval="60000" size="512"/>
+   *   <!-- 其他节点 -->
+   * </mapper>
+   * @param context
+   */
   private void cacheRefElement(XNode context) {
     if (context != null) {
-      //增加cache-ref
+      /**
+       * <cache-ref namespace="com.mybatis.mapper.RoleMapper"/>
+       */
+      // 注册缓存引用关系到Configuration
       configuration.addCacheRef(builderAssistant.getCurrentNamespace(), context.getStringAttribute("namespace"));
+      // 创建缓存引用解析器
       CacheRefResolver cacheRefResolver = new CacheRefResolver(builderAssistant, context.getStringAttribute("namespace"));
       try {
+        // 缓存引用解析
         cacheRefResolver.resolveCacheRef();
       } catch (IncompleteElementException e) {
         configuration.addIncompleteCacheRef(cacheRefResolver);
@@ -231,48 +319,91 @@ public class XMLMapperBuilder extends BaseBuilder {
     }
   }
 
-  //3.配置cache
-//  <cache
-//  eviction="FIFO"
-//  flushInterval="60000"
-//  size="512"
-//  readOnly="true"/>
+
+  /**
+   * 是 XMLMapperBuilder 中解析 <cache> 标签的核心方法，
+   * 它负责解析 Mapper 级别的缓存配置（如缓存类型、淘汰策略、刷新间隔等），
+   * 并通过 MapperBuilderAssistant 构建缓存对象注册到 Configuration 中，
+   * 是 MyBatis 一级 / 二级缓存体系中「二级缓存」的核心配置解析入口
+   *
+   * <cache
+   *   type="PERPETUAL"
+   *   eviction="LRU"
+   *   flushInterval="60000"
+   *   size="512"
+   *   readOnly="false"
+   *   blocking="false">
+   *   <property name="cacheKey" value="myKey"/>
+   * </cache>
+   * @param context
+   * @throws Exception
+   */
   private void cacheElement(XNode context) throws Exception {
     if (context != null) {
       String type = context.getStringAttribute("type", "PERPETUAL");
+      /**
+       * context.getStringAttribute("type", "PERPETUAL")：获取 type 属性，无则使用默认值 PERPETUAL；
+       * typeAliasRegistry.resolveAlias(type)：将别名解析为实际类（MyBatis 内置别名映射）：
+       * PERPETUAL → org.apache.ibatis.cache.impl.PerpetualCache（永久缓存，核心实现）；
+       * 也可自定义缓存类型（如 Redis/Memcached 缓存，需自定义实现 Cache 接口并注册别名）；
+       */
       Class<? extends Cache> typeClass = typeAliasRegistry.resolveAlias(type);
       String eviction = context.getStringAttribute("eviction", "LRU");
+      // 与上同理，将别名解析为实际类
       Class<? extends Cache> evictionClass = typeAliasRegistry.resolveAlias(eviction);
       Long flushInterval = context.getLongAttribute("flushInterval");
       Integer size = context.getIntAttribute("size");
       boolean readWrite = !context.getBooleanAttribute("readOnly", false);
+      /**
+       * blocking：阻塞模式，默认 false；
+       * true：当缓存中无数据时，多个线程同时查询同一数据，只有一个线程会去数据库查询，其他线程阻塞等待，避免缓存击穿；
+       * false：多个线程同时查询同一数据，都会去数据库查询（可能导致数据库压力骤增）。
+       */
       boolean blocking = context.getBooleanAttribute("blocking", false);
-      //读入额外的配置信息，易于第三方的缓存扩展,例:
-//    <cache type="com.domain.something.MyCustomCache">
-//      <property name="cacheFile" value="/tmp/my-custom-cache.tmp"/>
-//    </cache>
       Properties props = context.getChildrenAsProperties();
-      //调用builderAssistant.useNewCache
       builderAssistant.useNewCache(typeClass, evictionClass, flushInterval, size, readWrite, blocking, props);
     }
   }
 
-  //4.配置parameterMap
-  //已经被废弃了!老式风格的参数映射。可以忽略
+
+  /**
+   * MyBatis 为兼容老式参数映射配置保留的逻辑（现已废弃），
+   * 核心作用是将 XML 中 <parameterMap> 节点解析为 ParameterMap 对象并注册到 Configuration 中。
+   *
+   * <!-- 老式 parameterMap 配置（现已废弃） -->
+   * <parameterMap id="userParamMap" type="com.mybatis.entity.User">
+   *   <parameter property="id" javaType="java.lang.Integer" jdbcType="INTEGER" mode="IN"/>
+   *   <parameter property="username" javaType="java.lang.String" jdbcType="VARCHAR" typeHandler="org.apache.ibatis.type.StringTypeHandler"/>
+   * </parameterMap>
+   *
+   * <!-- 使用 parameterMap 的 SQL（老式写法） -->
+   * <insert id="insertUser" parameterMap="userParamMap">
+   *   INSERT INTO user(id, username) VALUES (?, ?)
+   * </insert>
+   * @param list
+   * @throws Exception
+   */
   private void parameterMapElement(List<XNode> list) throws Exception {
     for (XNode parameterMapNode : list) {
       String id = parameterMapNode.getStringAttribute("id");
       String type = parameterMapNode.getStringAttribute("type");
+      // 将类型字符串转换成实际类
       Class<?> parameterClass = resolveClass(type);
+      // 获取<parameterMap>下的所有<parameter>子节点
       List<XNode> parameterNodes = parameterMapNode.evalNodes("parameter");
+      // 初始化ParameterMapping列表（存储每个参数的映射规则）
       List<ParameterMapping> parameterMappings = new ArrayList<ParameterMapping>();
       for (XNode parameterNode : parameterNodes) {
+        // 对应属性名，即Java Bean的字段
         String property = parameterNode.getStringAttribute("property");
         String javaType = parameterNode.getStringAttribute("javaType");
         String jdbcType = parameterNode.getStringAttribute("jdbcType");
         String resultMap = parameterNode.getStringAttribute("resultMap");
+        // 参数模式，用于存储过程
         String mode = parameterNode.getStringAttribute("mode");
+        // 类型处理器
         String typeHandler = parameterNode.getStringAttribute("typeHandler");
+        // 数值精度
         Integer numericScale = parameterNode.getIntAttribute("numericScale");
         ParameterMode modeEnum = resolveParameterMode(mode);
         Class<?> javaTypeClass = resolveClass(javaType);
@@ -282,76 +413,96 @@ public class XMLMapperBuilder extends BaseBuilder {
         ParameterMapping parameterMapping = builderAssistant.buildParameterMapping(parameterClass, property, javaTypeClass, jdbcTypeEnum, resultMap, modeEnum, typeHandlerClass, numericScale);
         parameterMappings.add(parameterMapping);
       }
+      // 添加参数映射到Configuration中
       builderAssistant.addParameterMap(id, parameterClass, parameterMappings);
     }
   }
 
-  //5.配置resultMap,高级功能
   private void resultMapElements(List<XNode> list) throws Exception {
-      //基本上就是循环把resultMap加入到Configuration里去,保持2份，一份缩略，一分全名
     for (XNode resultMapNode : list) {
       try {
-          //循环调resultMapElement
         resultMapElement(resultMapNode);
       } catch (IncompleteElementException e) {
-        // ignore, it will be retried
       }
     }
   }
 
-  //5.1 配置resultMap
   private ResultMap resultMapElement(XNode resultMapNode) throws Exception {
     return resultMapElement(resultMapNode, Collections.<ResultMapping> emptyList());
   }
 
-  //5.1 配置resultMap
+  /**
+   * XMLMapperBuilder 中解析 <resultMap> 标签的核心方法，
+   * 它负责将 XML 中的 <resultMap> 节点（包含主键、普通字段、构造器、鉴别器等）解析为 MyBatis 内部的 ResultMap 对象，
+   * 是 MyBatis 结果集映射（ORM 核心）的核心实现。
+   *
+   * <resultMap id="UserResultMap" type="com.mybatis.entity.User" extends="BaseResultMap" autoMapping="true">
+   *   <!-- 主键映射 -->
+   *   <id column="id" property="id" javaType="java.lang.Integer"/>
+   *   <!-- 普通字段映射 -->
+   *   <result column="username" property="username" jdbcType="VARCHAR"/>
+   *   <!-- 构造器映射（用于无参构造器缺失的场景） -->
+   *   <constructor>
+   *     <idArg column="id" property="id" javaType="java.lang.Integer"/>
+   *     <arg column="username" property="username" javaType="java.lang.String"/>
+   *   </constructor>
+   *   <!-- 鉴别器（多态映射） -->
+   *   <discriminator column="user_type" javaType="java.lang.String">
+   *     <case value="ADMIN" resultType="com.mybatis.entity.AdminUser"/>
+   *     <case value="NORMAL" resultType="com.mybatis.entity.NormalUser"/>
+   *   </discriminator>
+   * </resultMap>
+   * @param resultMapNode
+   * @param additionalResultMappings
+   * @return
+   * @throws Exception
+   */
   private ResultMap resultMapElement(XNode resultMapNode, List<ResultMapping> additionalResultMappings) throws Exception {
-    //错误上下文
-//取得标示符   ("resultMap[userResultMap]")
-//    <resultMap id="userResultMap" type="User">
-//      <id property="id" column="user_id" />
-//      <result property="username" column="username"/>
-//      <result property="password" column="password"/>
-//    </resultMap>
+    // 错误上下文，便于异常是定位信息
     ErrorContext.instance().activity("processing " + resultMapNode.getValueBasedIdentifier());
+    // 解析id（优先取id属性，无则用节点唯一标识）
     String id = resultMapNode.getStringAttribute("id",
         resultMapNode.getValueBasedIdentifier());
-    //一般拿type就可以了，后面3个难道是兼容老的代码？
+    // 解析结果类型（优先级：type > ofType > resultType > javaTyp）
     String type = resultMapNode.getStringAttribute("type",
         resultMapNode.getStringAttribute("ofType",
             resultMapNode.getStringAttribute("resultType",
                 resultMapNode.getStringAttribute("javaType"))));
-    //高级功能，还支持继承?
-//  <resultMap id="carResult" type="Car" extends="vehicleResult">
-//    <result property="doorCount" column="door_count" />
-//  </resultMap>
+    // 解析继承的父ResultMap
     String extend = resultMapNode.getStringAttribute("extends");
-    //autoMapping
+    // 解析自动映射开关，即是否自动映射为显示配置的字段（如数据库字段 email 对应 Java 对象 email 字段，无需手动配置）
     Boolean autoMapping = resultMapNode.getBooleanAttribute("autoMapping");
+    // 将类型字符串转换为Class对象
     Class<?> typeClass = resolveClass(type);
+    // 鉴别器，用于多态结果映射
     Discriminator discriminator = null;
+
+    // 结果映射列表，存储所有映射规则（存储 <id>/<result>/<constructor> 等所有映射规则）
     List<ResultMapping> resultMappings = new ArrayList<ResultMapping>();
+    // 用于嵌套映射场景，如如 <association> 传递父级映射
     resultMappings.addAll(additionalResultMappings);
     List<XNode> resultChildren = resultMapNode.getChildren();
     for (XNode resultChild : resultChildren) {
+      // 处理所有映射场景
       if ("constructor".equals(resultChild.getName())) {
-        //解析result map的constructor
         processConstructorElement(resultChild, typeClass, resultMappings);
       } else if ("discriminator".equals(resultChild.getName())) {
-        //解析result map的discriminator
         discriminator = processDiscriminatorElement(resultChild, typeClass, resultMappings);
       } else {
+        // 解析 <id>/<result> 节点（主键/普通字段映射）
         List<ResultFlag> flags = new ArrayList<ResultFlag>();
         if ("id".equals(resultChild.getName())) {
+          // 标记为主键字段（ResultFlag.ID），MyBatis 主键处理优先级更高
           flags.add(ResultFlag.ID);
         }
-        //调5.1.1 buildResultMappingFromContext,得到ResultMapping
+        // 构建单个ResultMapping对象并添加到列表中
         resultMappings.add(buildResultMappingFromContext(resultChild, typeClass, flags));
       }
     }
-    //最后再调ResultMapResolver得到ResultMap
+    // ResultMapResolver：封装 ResultMap 的构建和注册逻辑，解耦解析和构建过程。
     ResultMapResolver resultMapResolver = new ResultMapResolver(builderAssistant, id, typeClass, extend, discriminator, resultMappings, autoMapping);
     try {
+      // 禅师解析并构建ResultMap
       return resultMapResolver.resolve();
     } catch (IncompleteElementException  e) {
       configuration.addIncompleteResultMap(resultMapResolver);
@@ -359,16 +510,31 @@ public class XMLMapperBuilder extends BaseBuilder {
     }
   }
 
-//解析result map的constructor
-//<constructor>
-//  <idArg column="blog_id" javaType="int"/>
-//</constructor>
+  /**
+   * 它专门处理 <resultMap> 下的构造器映射，用于解决 Java 实体类无默认构造器（无参构造） 时的结果集映射问题。
+   * 核心背景：若 Java 实体类只有有参构造器（无默认无参构造），MyBatis 无法通过 new User() 创建对象，
+   * 需通过 <constructor> 配置构造器参数，从结果集取值并调用构造器实例化对象；
+   *
+   * <resultMap id="UserResultMap" type="com.mybatis.entity.User">
+   *   <constructor>
+   *     <!-- 主键构造参数（idArg） -->
+   *     <idArg column="id" javaType="java.lang.Integer" name="id"/>
+   *     <!-- 普通构造参数（arg） -->
+   *     <arg column="username" javaType="java.lang.String" name="username"/>
+   *   </constructor>
+   * </resultMap>
+   * @param resultChild
+   * @param resultType
+   * @param resultMappings
+   * @throws Exception
+   */
   private void processConstructorElement(XNode resultChild, Class<?> resultType, List<ResultMapping> resultMappings) throws Exception {
     List<XNode> argChildren = resultChild.getChildren();
     for (XNode argChild : argChildren) {
       List<ResultFlag> flags = new ArrayList<ResultFlag>();
-      //结果标志加上ID和CONSTRUCTOR
+      // 标记为构造器参数
       flags.add(ResultFlag.CONSTRUCTOR);
+      // 额外标记为主键
       if ("idArg".equals(argChild.getName())) {
         flags.add(ResultFlag.ID);
       }
@@ -376,10 +542,15 @@ public class XMLMapperBuilder extends BaseBuilder {
     }
   }
 
-//解析result map的discriminator
-//<discriminator javaType="int" column="draft">
-//  <case value="1" resultType="DraftPost"/>
-//</discriminator>
+  /**
+   * XMLMapperBuilder 中解析 <discriminator>（鉴别器）节点的核心方法 —— 它专门处理 MyBatis 结果映射中的多态场景，
+   * 能根据数据库字段的不同值，动态选择不同的 ResultMap 来映射结果集（比如将 user_type=ADMIN 的记录映射为 AdminUser，user_type=NORMAL 映射为 NormalUser）。
+   * @param context
+   * @param resultType
+   * @param resultMappings
+   * @return
+   * @throws Exception
+   */
   private Discriminator processDiscriminatorElement(XNode context, Class<?> resultType, List<ResultMapping> resultMappings) throws Exception {
     String column = context.getStringAttribute("column");
     String javaType = context.getStringAttribute("javaType");
@@ -398,7 +569,6 @@ public class XMLMapperBuilder extends BaseBuilder {
     return builderAssistant.buildDiscriminator(resultType, column, javaTypeClass, jdbcTypeEnum, typeHandlerClass, discriminatorMap);
   }
 
-  //6 配置sql(定义可重用的 SQL 代码段)
   private void sqlElement(List<XNode> list) throws Exception {
     if (configuration.getDatabaseId() != null) {
       sqlElement(list, configuration.getDatabaseId());
@@ -406,15 +576,25 @@ public class XMLMapperBuilder extends BaseBuilder {
     sqlElement(list, null);
   }
 
-  //6.1 配置sql
-//<sql id="userColumns"> id,username,password </sql>
+
+  /**
+   * 关键逻辑：databaseIdMatchesCurrent 保证同一 ID 的 SQL 片段，优先加载匹配当前数据库的版本；
+   * 注意：此处仅存储 <sql> 节点，不解析内容，内容解析在 XMLIncludeTransformer 替换 <include> 时完成。
+   * @param list
+   * @param requiredDatabaseId
+   * @throws Exception
+   */
   private void sqlElement(List<XNode> list, String requiredDatabaseId) throws Exception {
     for (XNode context : list) {
+      // 数据库方言
       String databaseId = context.getStringAttribute("databaseId");
+      // SQL片段ID
       String id = context.getStringAttribute("id");
+      // 拼接命名空间（如com.mybatis.UserMapper.user_columns）
+      // 匹配databaseId，仅加载符合当前数据库的SQL片段
       id = builderAssistant.applyCurrentNamespace(id, false);
-      //比较简单，就是将sql片段放入hashmap,不过此时还没有解析sql片段
       if (databaseIdMatchesCurrent(id, databaseId, requiredDatabaseId)) {
+        // 将SQL片段存入缓存
         sqlFragments.put(id, context);
       }
     }
@@ -443,16 +623,44 @@ public class XMLMapperBuilder extends BaseBuilder {
     return true;
   }
 
-  //5.1.1 构建resultMap
+  /**
+   * 是 XMLMapperBuilder 中构建单个结果映射规则（ResultMapping）的核心工具方法——
+   * 它会解析 <id>/<result>/<idArg>/<arg>/<association>/<collection> 等所有结果映射节点的配置，
+   * 提取完整的映射参数，最终通过 MapperBuilderAssistant 构建标准化的 ResultMapping 对象。
+   *
+   * 解析任意结果映射节点（<id>/<result>/<association> 等）的所有属性，
+   * 转换为 MyBatis 内部的 ResultMapping 对象（该对象是结果集映射的最小单元）
+   *
+   * 解析 <id>/<result> 节点时直接调用；
+   * 解析 <constructor> 下的 <idArg>/<arg> 时通过 processConstructorElement() 间接调用；
+   * 解析 <association>/<collection> 等嵌套映射时也会调用；
+   * @param context
+   * @param resultType
+   * @param flags
+   * @return
+   * @throws Exception
+   */
   private ResultMapping buildResultMappingFromContext(XNode context, Class<?> resultType, List<ResultFlag> flags) throws Exception {
-	//<id property="id" column="author_id"/>
-	//<result property="username" column="author_username"/>
     String property = context.getStringAttribute("property");
     String column = context.getStringAttribute("column");
     String javaType = context.getStringAttribute("javaType");
     String jdbcType = context.getStringAttribute("jdbcType");
+    // 用于处理嵌套查询
+    /**
+     * 用于嵌套查询，MyBatis 会先查用户，再通过 role_id 调用 getRoleById 查询角色，nestedSelect 存储该 SQL ID。
+     * <association property="role" column="role_id" select="getRoleById"/>
+     */
     String nestedSelect = context.getStringAttribute("select");
-    //处理嵌套的result map
+
+    /**
+     * 嵌套结果映射
+     * 关键属性说明：
+     * notNullColumn：仅当指定列的值非空时，才执行该字段的映射（如 notNullColumn="role_id"，角色 ID 为空则不映射 role 属性）；
+     * columnPrefix：嵌套结果映射时的列前缀（如 columnPrefix="role_"，则 role_id 映射为角色的 id 属性）。
+     * typeHandler：自定义类型处理器（如将数据库的 VARCHAR 类型转换为 Java 的 Enum 类型）；
+     * resultSet：存储过程返回多个结果集时，指定该映射对应的结果集名称；
+     * foreignColumn：关联查询的外键列（如角色表的 user_id）。
+     */
     String nestedResultMap = context.getStringAttribute("resultMap",
         processNestedResultMappings(context, Collections.<ResultMapping> emptyList()));
     String notNullColumn = context.getStringAttribute("notNullColumn");
@@ -460,12 +668,50 @@ public class XMLMapperBuilder extends BaseBuilder {
     String typeHandler = context.getStringAttribute("typeHandler");
     String resulSet = context.getStringAttribute("resultSet");
     String foreignColumn = context.getStringAttribute("foreignColumn");
+    /**
+     * 解析延迟加载属性（懒加载）
+     * 优先取节点的 fetchType 属性（lazy/eager）；
+     * 未配置则使用全局配置（configuration.isLazyLoadingEnabled()）；
+     * lazy=true：延迟加载（嵌套对象如 role 只有在调用 user.getRole() 时才会查询）；
+     * lazy=false：立即加载（查询用户时同时加载 role）。
+     *
+     * <resultMap id="UserWithRolesResultMap" type="com.mybatis.entity.User">
+     *     <id property="id" column="user_id"/>
+     *     <result property="username" column="user_name"/>
+     *     <!-- 嵌套 ResultMap：一对多关联角色 -->
+     *     <collection
+     *         property="roles"         <!-- User 对象的 roles 集合属性 -->
+     *         resultMap="RoleResultMap"
+     *         columnPrefix="role_"/>
+     *         这里的columPrefix用于指定嵌套查询中的字段前缀
+     *
+     *  <resultMap id="UserWithRoleResultMap" type="com.mybatis.entity.User">
+     *     <id property="id" column="user_id"/>
+     *     <result property="username" column="user_name"/>
+     *     <!-- 嵌套RoleResultMap，添加columnPrefix="role_" -->
+     *     <association
+     *         property="role"
+     *         resultMap="RoleResultMap"
+     *         columnPrefix="role_"/> <!-- 关键配置：为嵌套列名加前缀 -->
+     * </association>
+     *
+     *  <select id="getUserWithRole" resultMap="UserWithRoleResultMap">
+     *     SELECT
+     *         u.id AS user_id,          <!-- 外层User的列 -->
+     *         u.username AS user_name,
+     *         r.id AS role_id,          <!-- 嵌套Role的列：前缀role_ -->
+     *         r.role_name AS role_name  <!-- 嵌套Role的列：前缀role_ -->
+     *     FROM user u
+     *     LEFT JOIN role r ON u.role_id = r.id
+     *     WHERE u.id = #{id}
+     * </select>
+     * </resultMap>
+     */
     boolean lazy = "lazy".equals(context.getStringAttribute("fetchType", configuration.isLazyLoadingEnabled() ? "lazy" : "eager"));
     Class<?> javaTypeClass = resolveClass(javaType);
     @SuppressWarnings("unchecked")
     Class<? extends TypeHandler<?>> typeHandlerClass = (Class<? extends TypeHandler<?>>) resolveClass(typeHandler);
     JdbcType jdbcTypeEnum = resolveJdbcType(jdbcType);
-    //又去调builderAssistant.buildResultMapping
     return builderAssistant.buildResultMapping(resultType, property, column, javaTypeClass, jdbcTypeEnum, nestedSelect, nestedResultMap, notNullColumn, columnPrefix, typeHandlerClass, flags, resulSet, foreignColumn, lazy);
   }
   

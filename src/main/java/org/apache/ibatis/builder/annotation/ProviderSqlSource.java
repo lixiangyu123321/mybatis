@@ -27,11 +27,31 @@ import org.apache.ibatis.session.Configuration;
 /**
  * @author Clinton Begin
  */
+
+/**
+ * 这里用于解析方法的Provider注解，用于处理Provider系列注解
+ * Provider系列注解以方法的形式提供SQL语句
+ */
 public class ProviderSqlSource implements SqlSource {
 
-  private SqlSourceBuilder sqlSourceParser;
+  /**
+   * SQL源解析器，将原始SQL字符串解析为sqlSource对象
+   * 而sqlSource对象用于生成BoundSql
+   * 而BoundSql是将原始SQL模板与参数对象绑定后生成的最终可执行SQL载体
+   */
+  private SqlSourceBuilder sqlSourceParser;、
+  /**
+   * provider类型
+   */
   private Class<?> providerType;
+  /**
+   * 使用了Provider系列注解的方法
+   */
   private Method providerMethod;
+
+  /**
+   * 标记目标方法是否接收参数对象（即方法是否有且仅有1个参数）
+   */
   private boolean providerTakesParameterObject;
 
   public ProviderSqlSource(Configuration config, Object provider) {

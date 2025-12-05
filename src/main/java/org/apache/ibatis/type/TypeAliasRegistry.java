@@ -159,11 +159,13 @@ public class TypeAliasRegistry {
     }
   }
 
-	//注册类型别名
+  /**
+   * 注册类型别名
+   * @param type 类型
+   */
   public void registerAlias(Class<?> type) {
-    //如果没有类型别名，用Class.getSimpleName来注册
+    // 获得类名（首字母不小写）
     String alias = type.getSimpleName();
-	//或者通过Alias注解来注册(Class.getAnnotation)
     Alias aliasAnnotation = type.getAnnotation(Alias.class);
     if (aliasAnnotation != null) {
       alias = aliasAnnotation.value();

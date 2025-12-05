@@ -54,13 +54,33 @@ import org.apache.ibatis.type.TypeHandler;
  */
 /**
  * 映射构建器助手，建造者模式,继承BaseBuilder
+ * 是 MyBatis 在解析 Mapper XML 文件或注解式 Mapper 时的核心辅助类
  *
+ * 管理 Mapper 的命名空间（Namespace），确保 SQL 语句、ResultMap 等组件的 ID 在命名空间内唯一；
+ * 构建并注册缓存（Cache）和缓存引用（cache-ref）；
+ * 构建并注册参数映射（ParameterMap）、结果映射（ResultMap）、鉴别器（Discriminator）；
+ * 构建并注册核心执行单元 **MappedStatement**（封装 SQL 语句、参数、结果映射、执行规则等）；
+ * 处理命名空间的拼接、类型处理器解析、语言驱动（LanguageDriver）加载等辅助逻辑。
  */
 public class MapperBuilderAssistant extends BaseBuilder {
 
+  /**
+   * 当前的命名空间
+   * 对应 XML 的namespace属性，或注解 Mapper 的全类名
+   */
   private String currentNamespace;
+  /**
+   * 当前解析的Mapper资源路径
+   * com/xxx/mapper/ArticleMapper.xml
+   */
   private String resource;
+  /**
+   * 当前Mapper绑定的缓存示例
+   */
   private Cache currentCache;
+  /**
+   * 标记缓存引用是否为解析完成（避免缓存依赖未加载时的异常）
+   */
   private boolean unresolvedCacheRef;
 
   public MapperBuilderAssistant(Configuration configuration, String resource) {
@@ -73,6 +93,12 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return currentNamespace;
   }
 
+  /**
+   * 设定当前 Mapper 的命名空间，做了两个关键校验：
+   * 1. 命名空间不能为空，否则抛出BuilderException；
+   * 2. 命名空间不能重复修改（避免解析过程中命名空间不一致）。
+   * @param currentNamespace
+   */
   public void setCurrentNamespace(String currentNamespace) {
     if (currentNamespace == null) {
       throw new BuilderException("The mapper element requires a namespace attribute to be specified.");
@@ -86,6 +112,15 @@ public class MapperBuilderAssistant extends BaseBuilder {
     this.currentNamespace = currentNamespace;
   }
 
+  /**
+   * 为组件 ID 拼接命名空间，生成全局唯一的 ID，核心逻辑：
+   * 1. 如果是引用类型（isReference=true，如引用其他命名空间的 ResultMap），且 ID 包含.，则直接返回（已带命名空间）；
+   * 2. 如果是当前命名空间内的组件（isReference=false），若 ID 未带命名空间，则拼接currentNamespace + "." + base；
+   * 3. 禁止当前命名空间内的组件 ID 包含.（避免与命名空间分隔符冲突）。
+   * @param base
+   * @param isReference
+   * @return
+   */
   public String applyCurrentNamespace(String base, boolean isReference) {
     if (base == null) {
       return null;
@@ -106,6 +141,14 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return currentNamespace + "." + base;
   }
 
+  /**
+   * 解析<cache-ref>标签，引用其他命名空间的缓存：
+   * 1. 校验引用的命名空间不能为空；
+   * 2. 从Configuration中获取目标命名空间的缓存，若不存在则抛出IncompleteElementException；
+   * 3. 标记缓存解析状态，将目标缓存设为当前 Mapper 的currentCache。
+   * @param namespace
+   * @return
+   */
   public Cache useCacheRef(String namespace) {
     if (namespace == null) {
       throw new BuilderException("cache-ref element requires a namespace attribute.");
@@ -124,6 +167,20 @@ public class MapperBuilderAssistant extends BaseBuilder {
     }
   }
 
+  /**
+   * 解析<cache>标签，创建新的缓存实例：
+   * 为缓存设置默认实现（默认PerpetualCache，淘汰策略默认LruCache）；
+   * 通过CacheBuilder构建缓存实例，缓存 ID 为当前命名空间；
+   * 将缓存注册到Configuration，并设为当前 Mapper 的currentCache。
+   * @param typeClass
+   * @param evictionClass
+   * @param flushInterval
+   * @param size
+   * @param readWrite
+   * @param blocking
+   * @param props
+   * @return
+   */
   public Cache useNewCache(Class<? extends Cache> typeClass,
       Class<? extends Cache> evictionClass,
       Long flushInterval,
@@ -150,6 +207,13 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return cache;
   }
 
+  /**
+   * 构建并注册ParameterMap
+   * @param id
+   * @param parameterClass
+   * @param parameterMappings
+   * @return
+   */
   public ParameterMap addParameterMap(String id, Class<?> parameterClass, List<ParameterMapping> parameterMappings) {
     id = applyCurrentNamespace(id, false);
     ParameterMap.Builder parameterMapBuilder = new ParameterMap.Builder(configuration, id, parameterClass, parameterMappings);
@@ -158,6 +222,21 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return parameterMap;
   }
 
+  /**
+   * 构建单个结果映射规则
+   * 1 解析属性类型、类型处理器、嵌套查询 / 嵌套结果映射；
+   * 2 处理复合列名、列前缀、非空列等特殊配置；
+   * 3 返回ResultMapping实例，作为ResultMap的最小组成单元。
+   * @param parameterType
+   * @param property
+   * @param javaType
+   * @param jdbcType
+   * @param resultMap
+   * @param parameterMode
+   * @param typeHandler
+   * @param numericScale
+   * @return
+   */
   public ParameterMapping buildParameterMapping(
       Class<?> parameterType,
       String property,
@@ -181,6 +260,19 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return builder.build();
   }
 
+  /**
+   * 构建并注册ResultMap
+   * 1 拼接 ResultMap 的全局唯一 ID；
+   * 2 处理 ResultMap 的继承（extend属性）：合并父 ResultMap 的映射规则，若子 ResultMap 包含构造器映射，则移除父类的构造器映射；
+   * 3 构建ResultMap实例并注册到Configuration。
+   * @param id
+   * @param type
+   * @param extend
+   * @param discriminator
+   * @param resultMappings
+   * @param autoMapping
+   * @return
+   */
   public ResultMap addResultMap(
       String id,
       Class<?> type,
@@ -222,6 +314,19 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return resultMap;
   }
 
+  /**
+   * 构建鉴别器（<discriminator>，用于多态结果映射）：
+   * 1 先构建鉴别器的列映射（ResultMapping）；
+   * 2 为鉴别器的结果映射引用拼接命名空间；
+   * 3 通过Discriminator.Builder构建鉴别器实例。
+   * @param resultType
+   * @param column
+   * @param javaType
+   * @param jdbcType
+   * @param typeHandler
+   * @param discriminatorMap
+   * @return
+   */
   public Discriminator buildDiscriminator(
       Class<?> resultType,
       String column,
@@ -254,6 +359,38 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return discriminatorBuilder.build();
   }
 
+  /**
+   * 负责构建Mybatis执行SQL的核心载体MappedStatement
+   * 对应 Mapper XML 中的<select>、<insert>、<update>、<delete>标签。
+   * 1.前置校验：若缓存引用未解析完成，抛出异常；
+   * 2.ID 处理：为 SQL 语句 ID 拼接命名空间，生成全局唯一 ID；
+   * 3.构建器初始化：通过MappedStatement.Builder设置 SQL 源（SqlSource）、语句类型（StatementType）、SQL 命令类型（SqlCommandType）等基础属性；
+   * 4.参数配置：通过setStatementParameterMap设置参数映射（ParameterMap）或参数类型；
+   * 5.结果配置：通过setStatementResultMap设置结果映射（ResultMap）或结果类型、结果集类型；
+   * 6.缓存配置：通过setStatementCache设置缓存规则（查询语句默认开启缓存，增删改默认刷新缓存）；
+   * 7.注册实例：构建MappedStatement并注册到Configuration。
+   * @param id
+   * @param sqlSource
+   * @param statementType
+   * @param sqlCommandType
+   * @param fetchSize
+   * @param timeout
+   * @param parameterMap
+   * @param parameterType
+   * @param resultMap
+   * @param resultType
+   * @param resultSetType
+   * @param flushCache
+   * @param useCache
+   * @param resultOrdered
+   * @param keyGenerator
+   * @param keyProperty
+   * @param keyColumn
+   * @param databaseId
+   * @param lang
+   * @param resultSets
+   * @return
+   */
   public MappedStatement addMappedStatement(
       String id,
       SqlSource sqlSource,
@@ -305,10 +442,27 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return statement;
   }
 
+  /**
+   * 为空值提供默认值
+   * @param value
+   * @param defaultValue
+   * @return
+   * @param <T>
+   */
   private <T> T valueOrDefault(T value, T defaultValue) {
     return value == null ? defaultValue : value;
   }
 
+
+  /**
+   * 设置语句缓存配置
+   *
+   * @param isSelect 是否为查询操作
+   * @param flushCache 是否在执行前清空缓存
+   * @param useCache 是否使用缓存
+   * @param cache 缓存实例
+   * @param statementBuilder 语句构建器
+   */
   private void setStatementCache(
       boolean isSelect,
       boolean flushCache,
@@ -322,6 +476,13 @@ public class MapperBuilderAssistant extends BaseBuilder {
     statementBuilder.cache(cache);
   }
 
+  /**
+   * 设置语句参数映射
+   *
+   * @param parameterMap 参数映射的名称
+   * @param parameterTypeClass 参数类型的类
+   * @param statementBuilder 语句构建器
+   */
   private void setStatementParameterMap(
       String parameterMap,
       Class<?> parameterTypeClass,
@@ -345,6 +506,14 @@ public class MapperBuilderAssistant extends BaseBuilder {
     }
   }
 
+  /**
+   * 设置Statement的结果映射
+   *
+   * @param resultMap 结果映射的名称，可以是逗号分隔的多个映射名称
+   * @param resultType 结果类型，当没有提供resultMap时使用
+   * @param resultSetType 结果集类型
+   * @param statementBuilder 用于构建MappedStatement的构建器
+   */
   private void setStatementResultMap(
       String resultMap,
       Class<?> resultType,
@@ -376,6 +545,12 @@ public class MapperBuilderAssistant extends BaseBuilder {
     statementBuilder.resultSetType(resultSetType);
   }
 
+  /**
+   * 设置语句超时时间
+   *
+   * @param timeout 超时时间，如果为 null，则使用配置的默认超时时间
+   * @param statementBuilder 用于构建语句的 MappedStatement.Builder 对象
+   */
   private void setStatementTimeout(Integer timeout, MappedStatement.Builder statementBuilder) {
     if (timeout == null) {
       timeout = configuration.getDefaultStatementTimeout();
@@ -383,6 +558,25 @@ public class MapperBuilderAssistant extends BaseBuilder {
     statementBuilder.timeout(timeout);
   }
 
+  /**
+   * 构建结果映射
+   *
+   * @param resultType 结果类型
+   * @param property 属性名
+   * @param column 数据库列名
+   * @param javaType Java类型
+   * @param jdbcType JDBC类型
+   * @param nestedSelect 嵌套查询ID
+   * @param nestedResultMap 嵌套结果映射ID
+   * @param notNullColumn 非空列名
+   * @param columnPrefix 列名前缀
+   * @param typeHandler 类型处理器
+   * @param flags 结果标志列表
+   * @param resultSet 结果集名称
+   * @param foreignColumn 外键列名
+   * @param lazy 是否懒加载
+   * @return 构建的结果映射对象
+   */
   public ResultMapping buildResultMapping(
       Class<?> resultType,
       String property,
@@ -420,6 +614,12 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return builder.build();
   }
 
+  /**
+   * 解析多个列名，将列名字符串分割成多个单独的列名并存储在集合中
+   *
+   * @param columnName 包含列名的字符串，列名之间可以用逗号、花括号或空格分隔
+   * @return 包含单独列名的集合
+   */
   private Set<String> parseMultipleColumnNames(String columnName) {
     Set<String> columns = new HashSet<String>();
     if (columnName != null) {
@@ -436,6 +636,12 @@ public class MapperBuilderAssistant extends BaseBuilder {
     return columns;
   }
 
+  /**
+   * 解析复合列名，生成ResultMapping列表
+   *
+   * @param columnName 包含复合列信息的字符串
+   * @return 包含解析后的ResultMapping对象的列表
+   */
   private List<ResultMapping> parseCompositeColumnName(String columnName) {
     List<ResultMapping> composites = new ArrayList<ResultMapping>();
     if (columnName != null && (columnName.indexOf('=') > -1 || columnName.indexOf(',') > -1)) {
