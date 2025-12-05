@@ -83,7 +83,7 @@ public class XMLMapperEntityResolver implements EntityResolver {
    * 
    * @throws org.xml.sax.SAXException If anything goes wrong
    */
-  @Override
+  //@Override
   //核心就是覆盖这个方法，达到转public DTD到本地DTD的目的
   public InputSource resolveEntity(String publicId, String systemId) throws SAXException {
 
