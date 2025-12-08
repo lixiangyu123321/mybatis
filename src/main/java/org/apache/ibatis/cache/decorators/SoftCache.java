@@ -24,18 +24,24 @@ import java.util.concurrent.locks.ReadWriteLock;
 import org.apache.ibatis.cache.Cache;
 
 /**
- * Soft Reference cache decorator
- * Thanks to Dr. Heinz Kabutz for his guidance here.
- * 软引用缓存,核心是SoftReference
- *
- * @author Clinton Begin
+ * SoftCache 是 MyBatis 提供的 “软引用缓存” 装饰器，
+ * 它基于 Java 的软引用（SoftReference）实现缓存管理 —— 内存充足时缓存正常生效，
+ * 内存不足时 JVM 自动回收缓存数据，核心价值是避免缓存占用过多内存导致 OOM，
+ * 同时通过硬引用链表保留高频访问数据，平衡缓存命中率和内存使用率。
  */
 public class SoftCache implements Cache {
-  //链表用来引用元素，防垃圾回收
+  /**
+   * 硬引用链表：存储高频访问的缓存值，防止被GC回收（默认容量256）
+   */
   private final Deque<Object> hardLinksToAvoidGarbageCollection;
-  //被垃圾回收的引用队列
+  /**
+   * 引用队列：JVM回收软引用后，会将SoftEntry加入此队列，用于清理失效缓存
+   */
   private final ReferenceQueue<Object> queueOfGarbageCollectedEntries;
   private final Cache delegate;
+  /**
+   *  硬引用链表的最大容量（默认256）
+   */
   private int numberOfHardLinks;
 
   public SoftCache(Cache delegate) {
@@ -115,12 +121,28 @@ public class SoftCache implements Cache {
 
   private void removeGarbageCollectedItems() {
     SoftEntry sv;
-    //查看被垃圾回收的引用队列,然后调用removeObject移除他们
+    // 从软引用队列中主键清楚
     while ((sv = (SoftEntry) queueOfGarbageCollectedEntries.poll()) != null) {
       delegate.removeObject(sv.key);
     }
   }
 
+  /**
+   * 软引用包装类
+   *
+   * 内存结构：
+   * ┌─────────────────────────────────────────────────────┐
+   * │                   HashMap (cacheMap)                 │
+   * ├─────────────────┬───────────────────────────────────┤
+   * │ 键 (强引用)      │ 值 (强引用)                       │
+   * │ "user:1001" ──→ │ SoftEntry实例                     │
+   * │                 │   ┌─────────────────────────────┐ │
+   * │ "user:1002" ──→ │   │ SoftEntry实例               │ │
+   * └─────────────────┴───┼─────────────────────────────┤ │
+   *                       │ - key: "user:1001" (强引用) │ │
+   *                       │ - value: User对象 (软引用)  │ │
+   *                       └─────────────────────────────┘ │
+   */
   private static class SoftEntry extends SoftReference<Object> {
     private final Object key;
 

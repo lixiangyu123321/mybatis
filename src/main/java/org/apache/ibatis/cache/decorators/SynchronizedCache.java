@@ -23,14 +23,9 @@ import org.apache.ibatis.cache.Cache;
  * @author Clinton Begin
  */
 /**
- * 同步缓存
- * 防止多线程问题
- * 核心: 加锁
- *  ReadWriteLock.readLock().lock()/unlock()
- *  ReadWriteLock.writeLock().lock()/unlock()
- *  
- *  3.2.6以后这个类已经没用了，考虑到Hazelcast, EhCache已经有锁机制了，所以这个锁就画蛇添足了。
- * bug见https://github.com/mybatis/mybatis-3/issues/159
+ * SynchronizedCache 是 MyBatis 提供的 “同步缓存” 装饰器，
+ * 它为底层缓存（Cache）的所有核心操作增加 synchronized 同步锁，
+ * 保证多线程环境下缓存操作的线程安全，避免并发读写导致的数据不一致或异常。
  *
  */
 public class SynchronizedCache implements Cache {

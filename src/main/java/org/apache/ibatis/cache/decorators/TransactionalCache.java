@@ -24,27 +24,25 @@ import java.util.concurrent.locks.ReadWriteLock;
 import org.apache.ibatis.cache.Cache;
 
 /**
- * The 2nd level cache transactional buffer.
- * 
- * This class holds all cache entries that are to be added to the 2nd level cache during a Session.
- * Entries are sent to the cache when commit is called or discarded if the Session is rolled back. 
- * Blocking cache support has been added. Therefore any get() that returns a cache miss 
- * will be followed by a put() so any lock associated with the key can be released. 
- * 
- * @author Clinton Begin
- * @author Eduardo Macarron
- */
-/**
- * 事务缓存
- * 一次性存入多个缓存，移除多个缓存
+ * TransactionalCache 是 MyBatis 提供的 “事务型缓存” 装饰器，
+ * 它为底层缓存增加了 “事务提交 / 回滚” 能力 —— 缓存操作先暂存到本地，
+ * 事务提交时才刷入底层缓存，回滚时放弃所有操作，核心价值是保证缓存数据与数据库事务的一致性。
  *
+ * 核心思路：
+ * 事务执行期间，所有缓存操作（put/clear）都暂存到本地集合，不直接修改底层缓存；
+ * 事务提交时：将本地暂存的操作刷入底层缓存，保证缓存与数据库一致；
+ * 事务回滚时：清空本地暂存的操作，放弃所有缓存修改，避免脏数据。
  */
 public class TransactionalCache implements Cache {
 
   private Cache delegate;
-  //commit时要不要清缓存
+  /**
+   * 事务提交是否清空底层缓存
+   */
   private boolean clearOnCommit;
-  //commit时要添加的元素
+  /**
+   * 事务期间待提交的缓存写入操作，kv映射，commit时刷入delegate
+   */
   private Map<Object, Object> entriesToAddOnCommit;
   private Set<Object> entriesMissedInCache;
 

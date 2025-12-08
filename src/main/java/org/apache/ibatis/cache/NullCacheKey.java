@@ -20,7 +20,6 @@ package org.apache.ibatis.cache;
  */
 /**
  * Null值缓存key
- * 
  */
 public final class NullCacheKey extends CacheKey {
 

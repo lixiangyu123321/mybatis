@@ -27,7 +27,8 @@ import org.apache.ibatis.session.Configuration;
  */
 /**
  * 静态SQL源码
- * 
+ * 专门封装 “静态、固定的预编译 SQL”（带 ? 占位符）和对应的参数映射列表，
+ * 调用 getBoundSql 时会直接返回包含最终 SQL 和参数信息的 BoundSql，无任何动态拼接逻辑。
  */
 public class StaticSqlSource implements SqlSource {
 

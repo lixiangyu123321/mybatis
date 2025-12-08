@@ -26,10 +26,7 @@ import org.apache.ibatis.cache.Cache;
  *
  * @author Clinton Begin
  */
-/*
- * 最近最少使用缓存
- * 基于 LinkedHashMap 覆盖其 removeEldestEntry 方法实现。
- */
+
 public class LruCache implements Cache {
 
   private final Cache delegate;

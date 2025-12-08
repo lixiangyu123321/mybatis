@@ -24,19 +24,20 @@ import org.apache.ibatis.cache.decorators.TransactionalCache;
  * @author Clinton Begin
  */
 /**
- * 事务缓存管理器，被CachingExecutor使用
+ * 二级缓存的 “事务协调者”，管理所有 Cache 对应的 TransactionalCache 实例
  *
+ *  TransactionalCacheManager 是 MyBatis 二级缓存的事务管理器，
+ *  它为每个底层缓存（Cache）包装一层 TransactionalCache（事务缓存），
+ *  实现 “事务提交时批量写入缓存、事务回滚时丢弃缓存写入” 的特性，保证二级缓存与数据库事务的一致性。
  */
 public class TransactionalCacheManager {
 
-  //管理了许多TransactionalCache
   private Map<Cache, TransactionalCache> transactionalCaches = new HashMap<Cache, TransactionalCache>();
 
   public void clear(Cache cache) {
     getTransactionalCache(cache).clear();
   }
 
-  //得到某个TransactionalCache的值
   public Object getObject(Cache cache, CacheKey key) {
     return getTransactionalCache(cache).getObject(key);
   }
@@ -45,14 +46,12 @@ public class TransactionalCacheManager {
     getTransactionalCache(cache).putObject(key, value);
   }
 
-  //提交时全部提交
   public void commit() {
     for (TransactionalCache txCache : transactionalCaches.values()) {
       txCache.commit();
     }
   }
 
-  //回滚时全部回滚
   public void rollback() {
     for (TransactionalCache txCache : transactionalCaches.values()) {
       txCache.rollback();

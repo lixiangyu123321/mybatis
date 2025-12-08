@@ -25,19 +25,23 @@ import org.apache.ibatis.cache.Cache;
 import org.apache.ibatis.cache.CacheException;
 
 /**
- * Simple blocking decorator 
- * 
- * Sipmle and inefficient version of EhCache's BlockingCache decorator.
- * It sets a lock over a cache key when the element is not found in cache.
- * This way, other threads will wait until this element is filled instead of hitting the database.
- * 
- * @author Eduardo Macarron
- *
+ * BlockingCache 是 MyBatis 提供的一种 “阻塞式缓存” 装饰器，
+ * 它为缓存的每个键（Key）绑定一个可重入锁（ReentrantLock），
+ * 保证同一时刻只有一个线程能加载某个键的缓存数据，解决了高并发场景下的 “缓存击穿”（Cache Stampede）问题。
  */
 public class BlockingCache implements Cache {
 
+  /**
+   * 锁超时时间，ReentrantLock设置超时时间
+   */
   private long timeout;
+  /**
+   * 装饰器模式：持有并实现接口
+   */
   private final Cache delegate;
+  /**
+   * 按key存储的锁映射表，每一个缓存有对应的一个ReentrantLock
+   */
   private final ConcurrentHashMap<Object, ReentrantLock> locks;
 
   public BlockingCache(Cache delegate) {
@@ -55,6 +59,10 @@ public class BlockingCache implements Cache {
     return delegate.getSize();
   }
 
+  /**
+   * 使用 finally 块保证锁一定会释放，避免死锁；
+   * 只有当第一个线程加载完数据并写入缓存后，才释放锁，其他线程此时读取缓存就能命中，无需穿透到数据库
+   */
   @Override
   public void putObject(Object key, Object value) {
     try {
@@ -66,11 +74,13 @@ public class BlockingCache implements Cache {
 
   @Override
   public Object getObject(Object key) {
+    // 阻塞/超时获得当前key的锁
     acquireLock(key);
     Object value = delegate.getObject(key);
     if (value != null) {
       releaseLock(key);
-    }        
+    }
+    // 如果缓存为空，则只有一个线程回去数据库中查询到数据
     return value;
   }
 
@@ -91,6 +101,8 @@ public class BlockingCache implements Cache {
   
   private ReentrantLock getLockForKey(Object key) {
     ReentrantLock lock = new ReentrantLock();
+    // 原子操作放入Map（putIfAbsent保证同一Key只有一个锁）
+    // 等于判断有没有，放入整合成了一个原子操作
     ReentrantLock previous = locks.putIfAbsent(key, lock);
     return previous == null ? lock : previous;
   }
@@ -113,6 +125,10 @@ public class BlockingCache implements Cache {
   
   private void releaseLock(Object key) {
     ReentrantLock lock = locks.get(key);
+    /**
+     * 这里可能只是putObject，并不会获得锁，也就无需释放
+     * 判断当前线程是否持有锁，如果持有，则释放
+     */
     if (lock.isHeldByCurrentThread()) {
       lock.unlock();
     }

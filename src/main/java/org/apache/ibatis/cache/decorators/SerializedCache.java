@@ -36,7 +36,10 @@ import org.apache.ibatis.io.Resources;
  * 序列化缓存
  * 用途是先将对象序列化成2进制，再缓存,好处是将对象压缩了，省内存
  * 坏处是速度慢了
- * 
+ *
+ * SerializedCache 是 MyBatis 提供的 “序列化缓存” 装饰器，
+ * 它为底层缓存增加了 “对象序列化 / 反序列化” 能力，核心价值是保证缓存对象的 “深拷贝”（避免引用传递导致的脏数据），
+ * 同时适配需要字节数组存储的缓存介质（如 Redis、Memcached）。
  */
 public class SerializedCache implements Cache {
 
@@ -126,7 +129,11 @@ public class SerializedCache implements Cache {
     return result;
   }
 
-  //这个Custom不明白何意
+  /**
+   * @desc: 自定义对象输入流处理类
+   * 重写了类加载逻辑，适配MyBatis运行的各种环境（普通Java环境，Web容器，Spring框架等）
+   * Java默认使用调用者的类加载器，复杂环境下可能找不到调用者的类加载器
+   */
   public static class CustomObjectInputStream extends ObjectInputStream {
 
     public CustomObjectInputStream(InputStream in) throws IOException {

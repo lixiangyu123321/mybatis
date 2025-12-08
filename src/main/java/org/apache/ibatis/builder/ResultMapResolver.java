@@ -48,7 +48,6 @@ public class ResultMapResolver {
   }
 
   public ResultMap resolve() {
-      //解析又去调用MapperBuilderAssistant.addResultMap
     return assistant.addResultMap(this.id, this.type, this.extend, this.discriminator, this.resultMappings, this.autoMapping);
   }
 
