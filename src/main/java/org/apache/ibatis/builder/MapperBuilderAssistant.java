@@ -421,6 +421,7 @@ public class MapperBuilderAssistant extends BaseBuilder {
     id = applyCurrentNamespace(id, false);
     boolean isSelect = sqlCommandType == SqlCommandType.SELECT;
 
+    // test code 2
     MappedStatement.Builder statementBuilder = new MappedStatement.Builder(configuration, id, sqlSource, sqlCommandType);
     statementBuilder.resource(resource);
     statementBuilder.fetchSize(fetchSize);
