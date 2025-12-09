@@ -35,11 +35,17 @@ import org.apache.ibatis.transaction.Transaction;
 import org.apache.ibatis.transaction.TransactionFactory;
 
 /**
- * @author Clinton Begin
- */
-/**
- * 结果延迟加载器
- * 
+ * 真正执行延迟查询的核心类
+ * 当访问懒加载的关联对象时，MyBatis会通过这个类执行实际的数据库查询
+ * 获取并返回真实的关联数据
+ * 核心作用是封装懒加载查询的所有上下文（执行器，SQL，参数等），并在触发加载时安全地执行查询，处理结果
+ *
+ * ResultLoader的核心目标：
+ * 封装懒加载上下文：保存执行延迟查询所需的所有核心组件（Executor、MappedStatement、参数、缓存键等）；
+ * 安全执行延迟查询：校验线程上下文、执行器状态，必要时创建新执行器，避免线程安全问题；
+ * 处理查询结果：将查询返回的列表结果转换为目标类型（单个对象 / 集合）；
+ * 状态管理：记录加载状态（是否已加载）、查询结果，提供空值校验方法；
+ * 资源管理：执行完查询后关闭临时创建的执行器，避免资源泄漏。
  */
 public class ResultLoader {
 
@@ -70,23 +76,18 @@ public class ResultLoader {
     this.creatorThreadId = Thread.currentThread().getId();
   }
 
-  //加载结果
   public Object loadResult() throws SQLException {
-	//1.selectList
     List<Object> list = selectList();
-    //2.ResultExtractor.extractObjectFromList
     resultObject = resultExtractor.extractObjectFromList(list, targetType);
     return resultObject;
   }
 
   private <E> List<E> selectList() throws SQLException {
     Executor localExecutor = executor;
-    //如果executor已经被关闭了，则创建一个新的
     if (Thread.currentThread().getId() != this.creatorThreadId || localExecutor.isClosed()) {
       localExecutor = newExecutor();
     }
     try {
-      //又调回Executor.query去了，比较巧妙
       return localExecutor.<E> query(mappedStatement, parameterObject, RowBounds.DEFAULT, Executor.NO_RESULT_HANDLER, cacheKey, boundSql);
     } finally {
       if (localExecutor != executor) {
@@ -106,7 +107,6 @@ public class ResultLoader {
     }
     final TransactionFactory transactionFactory = environment.getTransactionFactory();
     final Transaction tx = transactionFactory.newTransaction(ds, null, false);
-    //如果executor已经被关闭了，则创建一个新的SimpleExecutor
     return configuration.newExecutor(tx, ExecutorType.SIMPLE);
   }
 

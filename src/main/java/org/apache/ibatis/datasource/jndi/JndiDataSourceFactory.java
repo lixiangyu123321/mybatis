@@ -27,11 +27,10 @@ import org.apache.ibatis.datasource.DataSourceException;
 import org.apache.ibatis.datasource.DataSourceFactory;
 
 /**
- * @author Clinton Begin
- */
-/**
- * JNDI数据源工厂
- * 这个数据源的实现是为了使用如 Spring 或应用服务器这类的容器, 容器可以集 中或在外部配置数据源,然后放置一个 JNDI 上下文的引用。
+ * 是 MyBatis 中用于从 JNDI 容器获取数据源（DataSource） 的工厂类，
+ * 实现了 MyBatis 的DataSourceFactory接口，
+ * 核心作用是通过 JNDI 协议从应用服务器（如 Tomcat、JBoss）的 JNDI 上下文里获取预配置的数据源，
+ * 而非直接创建数据源（如 Druid、HikariCP）。
  */
 public class JndiDataSourceFactory implements DataSourceFactory {
 

@@ -30,7 +30,6 @@ import org.apache.ibatis.mapping.MappedStatement;
  */
 public class NoKeyGenerator implements KeyGenerator {
 
-  //都是空方法
   @Override
   public void processBefore(Executor executor, MappedStatement ms, Statement stmt, Object parameter) {
     // Do Nothing

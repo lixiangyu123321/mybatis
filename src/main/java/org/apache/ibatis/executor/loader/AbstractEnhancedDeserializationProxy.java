@@ -27,7 +27,15 @@ import org.apache.ibatis.reflection.property.PropertyCopier;
 import org.apache.ibatis.reflection.property.PropertyNamer;
 
 /**
- * @author Clinton Begin
+ * 从 Redis 反序列化得到 User 代理对象，由这个管家接管方法调用；
+ * 你调用user.getName()（普通方法）：管家检查无懒加载任务，直接返回「张三」；
+ * 你调用user.getOrder()（懒加载方法）：
+ * 管家拦截方法，找到「order」的懒加载任务；
+ * 加锁→触发任务查数据库→把 Order 赋值给 User→解锁；
+ * 执行getOrder()，返回真实的 Order 对象；
+ * 你要把 User 对象再次存 Redis（序列化）：
+ * 管家拦截writeReplace()方法；
+ * 重建纯 User 对象→装进新的保险箱→序列化保险箱。
  */
 public abstract class AbstractEnhancedDeserializationProxy {
 

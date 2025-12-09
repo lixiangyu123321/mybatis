@@ -20,16 +20,21 @@ import java.sql.Statement;
 import org.apache.ibatis.executor.Executor;
 import org.apache.ibatis.mapping.MappedStatement;
 
+
 /**
- * @author Clinton Begin
- */
-/**
- * 键值生成器
- *
+ * 是 MyBatis 中定义的主键生成器核心接口，它遵循「策略模式」设计，是 MyBatis 所有主键生成逻辑的统一扩展点 ——
+ * 不管是 MySQL 的自增主键（Jdbc3KeyGenerator）、Oracle 的序列主键（SequenceKeyGenerator），
+ * 还是自定义主键生成规则，都必须实现这个接口，保证 MyBatis 能以统一的时机触发主键生成 / 回填逻辑。
  */
 public interface KeyGenerator {
 
-  //定了2个回调方法，processBefore,processAfter
+  /**
+   *
+   * @param executor MyBatis 的执行器（负责 SQL 执行），可用于获取数据库连接、执行预查询（如获取序列值）
+   * @param ms 	映射语句对象（包含 Mapper 配置：主键属性、SQL 语句、配置信息等）
+   * @param stmt 待执行的 JDBC Statement（此时尚未执行 INSERT，仅初始化完成）
+   * @param parameter INSERT 的参数对象（如 User 实体），用于设置生成的主键值
+   */
   void processBefore(Executor executor, MappedStatement ms, Statement stmt, Object parameter);
 
   void processAfter(Executor executor, MappedStatement ms, Statement stmt, Object parameter);

@@ -34,8 +34,29 @@ import java.util.Map;
 import org.apache.ibatis.reflection.factory.ObjectFactory;
 
 /**
- * @author Eduardo Macarron
- * @author Franta Mejta
+ * MyBatis懒加载对象的序列化保险箱
+ * 它专门解决「带懒加载属性的对象」在 JDK 序列化 / 反序列化时的核心问题：
+ * 既要把对象存起来（序列化），又要保留懒加载的能力，反序列化后还能正常触发懒加载。
+ *
+ * 核心背景：为什么需要这个类？
+ * 之前我们讲过：带懒加载的对象（比如 User 代理对象）直接用 JDK 序列化会出问题 ——
+ * 懒加载的ResultLoader、Executor是transient（瞬态）的，序列化时会丢失；
+ * 反序列化后，对象虽然还在，但懒加载的任务（LoadPair）没了，调用user.getOrder()会直接返回 null，没法触发查库。
+ * AbstractSerialStateHolder的核心就是：自定义序列化规则，把懒加载相关的所有关键信息都存下来，反序列化后还原，让懒加载能力不丢失。
+ *
+ * 序列化阶段：
+ * User 代理对象被包装进AbstractSerialStateHolder；
+ * 调用writeExternal，把 User 对象、order/role 的懒加载任务、工具打成字节包；
+ * 字节包被序列化（比如存到 Redis）。
+ * 反序列化阶段：
+ * 从 Redis 读取字节包，调用readExternal，把字节包存到userBeanBytes；
+ * 调用readResolve，拆字节包还原 User 对象和懒加载任务；
+ * 调用createDeserializationProxy，重建带懒加载能力的 User 代理对象；
+ * 你拿到反序列化后的 User 对象，调用user.getOrder()，依然能触发懒加载查库。
+ *
+ * “保险箱”（AbstractSerialStateHolder）只保存了懒加载的 “静态数据”（比如任务清单、对象属性），
+ * 但懒加载的 “动态执行环境”（比如 Executor、数据库连接、线程上下文）是无法被序列化的，
+ * 就算想存也存不了 —— 这些才是真正丢失的 “原生环境”。
  */
 public abstract class AbstractSerialStateHolder implements Externalizable {
 

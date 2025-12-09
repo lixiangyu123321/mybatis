@@ -18,22 +18,26 @@ package org.apache.ibatis.exceptions;
 import org.apache.ibatis.executor.ErrorContext;
 
 /**
- * @author Clinton Begin
- */
-/**
- * 
- * 异常工厂
+ * 统一封装持久化异常的工具类
+ * 核心作用是将底层的原生异常包装成MyBatis自定义的PersistenceException。并通过ErrorContext补充异常上下文信息
+ * 让异常更容易排查
  */
 public class ExceptionFactory {
 
   private ExceptionFactory() {
-    // Prevent Instantiation
   }
 
-  //把普通异常包装成mybatis自己的PersistenceException
+  /**
+   * ExceptionFactory是一个静态工具类（无实例化能力），仅暴露一个静态方法wrapException：
+   * 接收异常提示信息和原生异常；
+   * 结合ErrorContext（MyBatis 的异常上下文）构建完整的异常描述；
+   * 将原生异常包装为 MyBatis 统一的PersistenceException（运行时异常）并返回；
+   * 核心目标：统一持久层异常类型，补充上下文信息，简化异常处理。
+   * @param message
+   * @param e
+   * @return
+   */
   public static RuntimeException wrapException(String message, Exception e) {
-    //查找错误上下文，得到错误原因，传给PersistenceException
-    //每个线程都会有一个ErrorContext，所以可以得到，  .message(message).cause是典型的构建器模式
     return new PersistenceException(ErrorContext.instance().message(message).cause(e).toString(), e);
   }
 

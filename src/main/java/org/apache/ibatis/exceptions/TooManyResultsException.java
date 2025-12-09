@@ -20,7 +20,24 @@ package org.apache.ibatis.exceptions;
  */
 /**
  * 
- * 结果太多异常,一般是预想select出一条记录，结果得到多于一条记录时会抛此异常
+ * 是 MyBatis 中专门用于表示「查询结果数量超出预期」的异常类，它继承自 MyBatis 核心的PersistenceException（持久层异常），
+ * 是 MyBatis 异常体系中分工明确的 “专用异常”。
+ *
+ * 核心使用场景
+ * // MyBatis的DefaultSqlSession.selectOne方法简化逻辑
+ * public <T> T selectOne(String statement, Object parameter) {
+ *   // 执行查询，获取结果列表
+ *   List<T> list = this.selectList(statement, parameter);
+ *   // 判断结果数：0条返回null，1条返回第一条，多条抛出异常
+ *   if (list.size() == 1) {
+ *     return list.get(0);
+ *   } else if (list.size() > 1) {
+ *     // 抛出TooManyResultsException，带明确的语义提示
+ *     throw new TooManyResultsException("Expected one result (or null) to be returned by selectOne(), but found: " + list.size());
+ *   } else {
+ *     return null;
+ *   }
+ * }
  */
 public class TooManyResultsException extends PersistenceException {
 

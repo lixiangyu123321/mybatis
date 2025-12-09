@@ -41,19 +41,23 @@ import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
 
 /**
- * @author Clinton Begin
- * @author Franta Mejta
- */
-/**
- * 结果延迟加载器映射
- * 
+ * 它专门管理一个对象中所有需要懒加载的属性（比如 User 对象里的 order、role 等懒加载属性），
+ * 把每个懒加载属性对应的「加载任务」（ResultLoader）存起来，等你真正用到这个属性时，再触发对应的任务去数据库查数据，
+ * 还能处理序列化、跨线程等特殊场景下的懒加载。
  */
 public class ResultLoaderMap {
 
-  //加载对的hashmap
+  /**
+   * 所有懒加载任务，对应所有懒加载属性
+   */
   private final Map<String, LoadPair> loaderMap = new HashMap<String, LoadPair>();
 
-  //把要延迟加载的属性记到ResultLoaderMap里（一个哈希表）
+  /**
+   * 添加懒加载任务
+   * @param property
+   * @param metaResultObject
+   * @param resultLoader
+   */
   public void addLoader(String property, MetaObject metaResultObject, ResultLoader resultLoader) {
     String upperFirst = getUppercaseFirstProperty(property);
     if (!upperFirst.equalsIgnoreCase(property) && loaderMap.containsKey(upperFirst)) {
@@ -61,11 +65,6 @@ public class ResultLoaderMap {
               "' for query id '" + resultLoader.mappedStatement.getId() +
               " already exists in the result map. The leftmost property of all lazy loaded properties must be unique within a result map.");
     }
-    //key是property，这样当客户端调用getter来取真实值时，会判断这个属性是否是延迟加载属性，是才去加载
-    //可参见CglibProxyFactory的代码
-//    if (lazyLoader.hasLoader(property)) {
-//        lazyLoader.load(property);
-//    }
     loaderMap.put(upperFirst, new LoadPair(property, metaResultObject, resultLoader));
   }
 
@@ -85,17 +84,25 @@ public class ResultLoaderMap {
     return loaderMap.containsKey(property.toUpperCase(Locale.ENGLISH));
   }
 
+  /**
+   * 懒触发单个加载
+   * @param property
+   * @return
+   * @throws SQLException
+   */
   public boolean load(String property) throws SQLException {
-	//先删除key，防止第二次又去查数据库就不对了
     LoadPair pair = loaderMap.remove(property.toUpperCase(Locale.ENGLISH));
     if (pair != null) {
-      //去数据库查
       pair.load();
       return true;
     }
     return false;
   }
 
+  /**
+   * 触发所有懒加载
+   * @throws SQLException
+   */
   public void loadAll() throws SQLException {
     final Set<String> methodNameSet = loaderMap.keySet();
     String[] methodNames = methodNameSet.toArray(new String[methodNameSet.size()]);
@@ -109,10 +116,11 @@ public class ResultLoaderMap {
     return parts[0].toUpperCase(Locale.ENGLISH);
   }
 
+
   /**
-   * Property which was not loaded yet.
+   * 懒加载任务
+   * 要加载的属性 + MetaObject（如何设置懒加载属性，反射方法工具类） + ResultLoader（加载的载体）
    */
-  //静态内部类，加载对
   public static class LoadPair implements Serializable {
 
     private static final long serialVersionUID = 20130412;
@@ -158,11 +166,9 @@ public class ResultLoaderMap {
       this.metaResultObject = metaResultObject;
       this.resultLoader = resultLoader;
 
-      /* Save required information only if original object can be serialized. */
       if (metaResultObject != null && metaResultObject.getOriginalObject() instanceof Serializable) {
         final Object mappedStatementParameter = resultLoader.parameterObject;
 
-        /* @todo May the parameter be null? */
         if (mappedStatementParameter instanceof Serializable) {
           this.mappedStatement = resultLoader.mappedStatement.getId();
           this.mappedParameter = (Serializable) mappedStatementParameter;
@@ -178,8 +184,6 @@ public class ResultLoaderMap {
     }
 
     public void load() throws SQLException {
-      /* These field should not be null unless the loadpair was serialized.
-       * Yet in that case this method should not be called. */
       if (this.metaResultObject == null) {
         throw new IllegalArgumentException("metaResultObject is null");
       }
