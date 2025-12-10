@@ -18,11 +18,7 @@ package org.apache.ibatis.executor;
 import org.apache.ibatis.exceptions.PersistenceException;
 
 /**
- * @author Clinton Begin
- */
-/**
- * 执行异常
- * 
+ * 关于执行器异常，异常语义化
  */
 public class ExecutorException extends PersistenceException {
 
